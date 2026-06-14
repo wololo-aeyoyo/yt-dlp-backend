@@ -6,3 +6,4 @@ aiofiles==25.1.0
 python-multipart==0.0.32
 pydantic-settings==2.14.1
 imageio-ffmpeg==0.5.1
+slowapi==0.1.9

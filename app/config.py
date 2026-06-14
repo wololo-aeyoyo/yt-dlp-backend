@@ -4,8 +4,8 @@ import imageio_ffmpeg
 
 
 class Settings(BaseSettings):
-    chibisafe_base_url: str = "https://chibisafe.wololoaeyoyo.com"
-    chibisafe_api_key: str = "cejqAqkeaWFTtxmnLZo1TRps46MPYT1CAM8r98IAOUmQvb8br9ioO9uwtOnodcbh"
+    chibisafe_base_url: str
+    chibisafe_api_key: str
     download_dir: str = "/tmp/yt-dlp-downloads"
     ffmpeg_path: str = imageio_ffmpeg.get_ffmpeg_exe()
     max_filesize_mb: int = 2000

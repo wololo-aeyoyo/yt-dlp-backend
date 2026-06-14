@@ -1,9 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
+from app.limiter import limiter
 from app.routers import health, videos
 
 app = FastAPI(
+    openapi_tags=[
+        {"name": "Videos", "description": "Download, inspect, and convert videos"},
+        {"name": "Health", "description": "Service health check"},
+    ],
     title="yt-dlp Backend",
     description="""
 ## yt-dlp FastAPI Backend
@@ -44,6 +51,9 @@ A backend service for downloading videos, extracting audio, and uploading to Chi
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

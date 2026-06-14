@@ -1,4 +1,5 @@
 import os
+import subprocess
 import uuid
 import asyncio
 from pathlib import Path
@@ -8,6 +9,18 @@ import yt_dlp
 
 from app.config import get_settings
 from app.models.schemas import VideoInfo, FormatInfo
+
+
+def _faststart(input_path: str, ffmpeg: str) -> str:
+    """Remux MP4 with moov atom at the front so players can read metadata immediately."""
+    output_path = input_path.replace(".mp4", "_fs.mp4")
+    result = subprocess.run(
+        [ffmpeg, "-i", input_path, "-c", "copy", "-movflags", "+faststart", "-y", output_path],
+        capture_output=True,
+    )
+    if result.returncode == 0 and os.path.exists(output_path):
+        os.replace(output_path, input_path)  # atomic replace, keep original name
+    return input_path
 
 
 def _build_format_info(fmt: dict) -> FormatInfo:
@@ -71,7 +84,10 @@ def _download_sync(url: str, format_spec: str, output_dir: str) -> tuple[str, st
 
     # Use the hook-captured path first (most reliable after post-processing)
     if downloaded_path and os.path.exists(downloaded_path[-1]):
-        return downloaded_path[-1], title
+        filepath = downloaded_path[-1]
+        if filepath.endswith(".mp4"):
+            _faststart(filepath, get_settings().ffmpeg_path)
+        return filepath, title
 
     # Fall back to guessing the filepath
     guessed = os.path.join(
@@ -87,6 +103,9 @@ def _download_sync(url: str, format_spec: str, output_dir: str) -> tuple[str, st
             if fname.startswith(session_id):
                 guessed = os.path.join(output_dir, fname)
                 break
+
+    if guessed.endswith(".mp4") and os.path.exists(guessed):
+        _faststart(guessed, get_settings().ffmpeg_path)
 
     return guessed, title
 

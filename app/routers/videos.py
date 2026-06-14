@@ -2,10 +2,11 @@ import mimetypes
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 import yt_dlp.utils
 
 from app.config import get_settings
+from app.limiter import limiter
 from app.models.schemas import (
     ConvertRequest,
     ConvertResponse,
@@ -36,7 +37,8 @@ def _cleanup(*paths: str | None) -> None:
 
 
 @router.get("/info", response_model=VideoInfo, summary="Get video metadata and available formats")
-async def get_info(url: str = Query(..., description="Video URL to inspect")):
+@limiter.limit("30/minute")
+async def get_info(request: Request, url: str = Query(..., description="Video URL to inspect")):
     """
     Returns full video metadata including all available formats with their
     codec, resolution, filesize, and bitrate details.
@@ -50,7 +52,8 @@ async def get_info(url: str = Query(..., description="Video URL to inspect")):
 
 
 @router.post("/download", response_model=DownloadResponse, summary="Download a video")
-async def download_video(request: DownloadRequest):
+@limiter.limit("10/minute")
+async def download_video(request: Request, body: DownloadRequest):
     """
     Downloads a video in the requested format/quality.
 
@@ -62,17 +65,17 @@ async def download_video(request: DownloadRequest):
     filepath = None
     try:
         filepath, title = await downloader.download_video(
-            url=request.url,
+            url=body.url,
             output_dir=settings.download_dir,
-            format_id=request.format_id,
-            quality=request.quality,
+            format_id=body.format_id,
+            quality=body.quality,
         )
 
         file_size = os.path.getsize(filepath)
         mime_type, _ = mimetypes.guess_type(filepath)
 
         chibi = None
-        if request.upload_to_chibisafe:
+        if body.upload_to_chibisafe:
             chibi = await uploader.upload_to_chibisafe(filepath)
 
         return DownloadResponse(
@@ -93,7 +96,8 @@ async def download_video(request: DownloadRequest):
 
 
 @router.post("/convert", response_model=ConvertResponse, summary="Download video and convert to MP3")
-async def convert_to_mp3(request: ConvertRequest):
+@limiter.limit("10/minute")
+async def convert_to_mp3(request: Request, body: ConvertRequest):
     """
     Downloads the audio from a video URL and converts it to MP3.
 
@@ -105,17 +109,17 @@ async def convert_to_mp3(request: ConvertRequest):
     mp3_path = None
     try:
         video_path, title = await downloader.download_video(
-            url=request.url,
+            url=body.url,
             output_dir=settings.download_dir,
             quality="bestaudio/best",
         )
 
-        mp3_path = await converter.convert_to_mp3(video_path, request.audio_quality.value)
+        mp3_path = await converter.convert_to_mp3(video_path, body.audio_quality.value)
 
         file_size = os.path.getsize(mp3_path)
 
         chibi = None
-        if request.upload_to_chibisafe:
+        if body.upload_to_chibisafe:
             chibi = await uploader.upload_to_chibisafe(mp3_path)
 
         return ConvertResponse(
