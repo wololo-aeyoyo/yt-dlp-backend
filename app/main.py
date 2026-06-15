@@ -70,3 +70,9 @@ app.include_router(videos.router)
 @app.get("/", include_in_schema=False)
 async def root():
     return {"message": "yt-dlp backend — visit /docs for API reference"}
+
+
+# Set up observability last so all routes exist before instrumentation runs.
+from app.observability import setup_observability  # noqa: E402
+
+setup_observability(app)

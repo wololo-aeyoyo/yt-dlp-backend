@@ -7,3 +7,13 @@ python-multipart==0.0.32
 pydantic-settings==2.14.1
 imageio-ffmpeg==0.5.1
 slowapi==0.1.9
+
+# Observability
+python-json-logger                          # structured JSON logs
+python-logging-loki                         # Loki log shipping
+opentelemetry-sdk                           # OTel core
+opentelemetry-exporter-otlp-proto-http      # OTLP/HTTP exporter → Tempo
+opentelemetry-instrumentation-fastapi       # auto-trace FastAPI routes
+opentelemetry-instrumentation-httpx         # auto-trace httpx (Chibisafe calls)
+prometheus-fastapi-instrumentator           # /metrics endpoint → Mimir
+pyroscope-io                                # continuous profiling → Pyroscope
