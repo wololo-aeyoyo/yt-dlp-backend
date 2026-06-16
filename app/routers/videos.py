@@ -2,9 +2,11 @@ import mimetypes
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 import yt_dlp.utils
 
+from app import db
+from app.auth import optional_user
 from app.config import get_settings
 from app.limiter import limiter
 from app.models.schemas import (
@@ -17,6 +19,8 @@ from app.models.schemas import (
 from app.services import converter, downloader, uploader
 
 router = APIRouter(prefix="/api", tags=["Videos"])
+
+_2GB = 2 * 1024 ** 3
 
 
 def _human_size(num_bytes: int) -> str:
@@ -38,30 +42,33 @@ def _cleanup(*paths: str | None) -> None:
 
 @router.get("/info", response_model=VideoInfo, summary="Get video metadata and available formats")
 @limiter.limit("30/minute")
-async def get_info(request: Request, url: str = Query(..., description="Video URL to inspect")):
-    """
-    Returns full video metadata including all available formats with their
-    codec, resolution, filesize, and bitrate details.
-    """
+async def get_info(
+    request: Request,
+    url: str = Query(..., description="Video URL to inspect"),
+    user_id: int | None = Depends(optional_user),
+):
+    pool = request.app.state.db
     try:
-        return await downloader.get_video_info(url)
+        info = await downloader.get_video_info(url)
+        await db.log_request(pool, url=url, action="info", success=True, user_id=user_id)
+        return info
     except yt_dlp.utils.DownloadError as exc:
+        await db.log_request(pool, url=url, action="info", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        await db.log_request(pool, url=url, action="info", success=False, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/download", response_model=DownloadResponse, summary="Download a video")
 @limiter.limit("10/minute")
-async def download_video(request: Request, body: DownloadRequest):
-    """
-    Downloads a video in the requested format/quality.
-
-    - **format_id**: specific format ID from `/api/info` (e.g. `137+140`)
-    - **quality**: yt-dlp format string (default: `bestvideo+bestaudio/best`)
-    - **upload_to_chibisafe**: upload the file to chibisafe after download
-    """
+async def download_video(
+    request: Request,
+    body: DownloadRequest,
+    user_id: int | None = Depends(optional_user),
+):
     settings = get_settings()
+    pool = request.app.state.db
     filepath = None
     try:
         filepath, title = await downloader.download_video(
@@ -74,9 +81,25 @@ async def download_video(request: Request, body: DownloadRequest):
         file_size = os.path.getsize(filepath)
         mime_type, _ = mimetypes.guess_type(filepath)
 
+        if file_size > _2GB and user_id is None:
+            await db.log_request(
+                pool, url=body.url, action="download", success=False, title=title,
+                file_size_bytes=file_size, error="auth required for files >2 GB",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to download files larger than 2 GB",
+            )
+
         chibi = None
         if body.upload_to_chibisafe:
             chibi = await uploader.upload_to_chibisafe(filepath)
+
+        await db.log_request(
+            pool, url=body.url, action="download", success=True, title=title,
+            file_size_bytes=file_size, chibisafe_url=chibi.url if chibi else None,
+            user_id=user_id,
+        )
 
         return DownloadResponse(
             success=True,
@@ -87,9 +110,13 @@ async def download_video(request: Request, body: DownloadRequest):
             mime_type=mime_type,
             chibisafe=chibi,
         )
+    except HTTPException:
+        raise
     except yt_dlp.utils.DownloadError as exc:
+        await db.log_request(pool, url=body.url, action="download", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        await db.log_request(pool, url=body.url, action="download", success=False, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
         _cleanup(filepath)
@@ -97,14 +124,13 @@ async def download_video(request: Request, body: DownloadRequest):
 
 @router.post("/convert", response_model=ConvertResponse, summary="Download video and convert to MP3")
 @limiter.limit("10/minute")
-async def convert_to_mp3(request: Request, body: ConvertRequest):
-    """
-    Downloads the audio from a video URL and converts it to MP3.
-
-    - **audio_quality**: `96k` | `128k` | `192k` (default) | `320k`
-    - **upload_to_chibisafe**: upload the MP3 to chibisafe after conversion
-    """
+async def convert_to_mp3(
+    request: Request,
+    body: ConvertRequest,
+    user_id: int | None = Depends(optional_user),
+):
     settings = get_settings()
+    pool = request.app.state.db
     video_path = None
     mp3_path = None
     try:
@@ -115,12 +141,27 @@ async def convert_to_mp3(request: Request, body: ConvertRequest):
         )
 
         mp3_path = await converter.convert_to_mp3(video_path, body.audio_quality.value)
-
         file_size = os.path.getsize(mp3_path)
+
+        if file_size > _2GB and user_id is None:
+            await db.log_request(
+                pool, url=body.url, action="convert", success=False, title=title,
+                file_size_bytes=file_size, error="auth required for files >2 GB",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required for files larger than 2 GB",
+            )
 
         chibi = None
         if body.upload_to_chibisafe:
             chibi = await uploader.upload_to_chibisafe(mp3_path)
+
+        await db.log_request(
+            pool, url=body.url, action="convert", success=True, title=title,
+            file_size_bytes=file_size, chibisafe_url=chibi.url if chibi else None,
+            user_id=user_id,
+        )
 
         return ConvertResponse(
             success=True,
@@ -128,12 +169,16 @@ async def convert_to_mp3(request: Request, body: ConvertRequest):
             filename=Path(mp3_path).name,
             file_size_bytes=file_size,
             file_size_human=_human_size(file_size),
-            audio_quality=request.audio_quality.value,
+            audio_quality=body.audio_quality.value,
             chibisafe=chibi,
         )
+    except HTTPException:
+        raise
     except yt_dlp.utils.DownloadError as exc:
+        await db.log_request(pool, url=body.url, action="convert", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        await db.log_request(pool, url=body.url, action="convert", success=False, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
         _cleanup(video_path, mp3_path)

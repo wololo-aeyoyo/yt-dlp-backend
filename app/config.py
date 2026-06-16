@@ -12,20 +12,23 @@ class Settings(BaseSettings):
     ffmpeg_path: str = imageio_ffmpeg.get_ffmpeg_exe()
     max_filesize_mb: int = 2000
 
+    # PostgreSQL
+    pg_host: str = "localhost"
+    pg_port: int = 5432
+    pg_user: str = "postgres"
+    pg_password: str = ""
+    pg_database: str = "ytdlp"
+
+    # JWT
+    jwt_secret: str
+    jwt_expire_hours: int = 24
+
     # Observability
     environment: str = "production"
     json_logs: bool = True
-
-    # Loki — set to ship logs, e.g. http://localhost:3100
     loki_url: Optional[str] = None
-
-    # Tempo — OTLP HTTP endpoint, e.g. http://localhost:4318
     otel_endpoint: Optional[str] = None
-
-    # Mimir — exposes /metrics for Prometheus scrape; set False to disable
     prometheus_enabled: bool = True
-
-    # Pyroscope — set to enable continuous profiling, e.g. http://localhost:4040
     pyroscope_url: Optional[str] = None
 
     class Config:

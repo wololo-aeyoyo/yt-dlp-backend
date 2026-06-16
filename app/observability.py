@@ -48,7 +48,11 @@ def _setup_loki(settings) -> None:
     try:
         import logging_loki
 
-        loki_handler = logging_loki.LokiHandler(
+        class _SilentLokiHandler(logging_loki.LokiHandler):
+            def handleError(self, record):
+                pass  # drop silently when Loki is unreachable
+
+        loki_handler = _SilentLokiHandler(
             url=f"{settings.loki_url}/loki/api/v1/push",
             tags={"app": "yt-dlp-backend", "env": settings.environment},
             version="1",

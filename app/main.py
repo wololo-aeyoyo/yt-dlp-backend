@@ -1,12 +1,24 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.db import create_pool
 from app.limiter import limiter
-from app.routers import health, videos
+from app.routers import auth, health, videos
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.db = await create_pool()
+    yield
+    await app.state.db.close()
+
 
 app = FastAPI(
+    lifespan=lifespan,
     openapi_tags=[
         {"name": "Videos", "description": "Download, inspect, and convert videos"},
         {"name": "Health", "description": "Service health check"},
@@ -63,6 +75,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(videos.router)
 
