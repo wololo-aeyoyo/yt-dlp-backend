@@ -8,6 +8,9 @@ on:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
@@ -16,17 +19,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-backend
+          images: ghcr.io/${{ github.repository_owner }}/yt-dlp-backend
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=main-{{date 'YYYYMMDDHHMMSS'}},enable={{is_default_branch}}

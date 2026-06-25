@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM python:3.10-slim
+FROM python:3.10-slim AS runner
 
 # libsnappy1v5 is the only runtime system dep (python-snappy links against it)
 RUN apt-get update && apt-get install -y --no-install-recommends \
