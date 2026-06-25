@@ -48,9 +48,7 @@ class VideoInfo(BaseModel):
 class DownloadRequest(BaseModel):
     url: str
     format_id: Optional[str] = None
-    quality: str = "bestvideo+bestaudio/best"
-    upload_to_chibisafe: bool = False
-
+    quality: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
     @field_validator("url")
     @classmethod
     def url_must_not_be_empty(cls, v: str) -> str:
@@ -72,13 +70,12 @@ class DownloadResponse(BaseModel):
     file_size_bytes: int
     file_size_human: str
     mime_type: Optional[str] = None
-    chibisafe: Optional[ChibisafeUpload] = None
+    chibisafe: ChibisafeUpload
 
 
 class ConvertRequest(BaseModel):
     url: str
     audio_quality: AudioQuality = AudioQuality.high
-    upload_to_chibisafe: bool = False
 
     @field_validator("url")
     @classmethod
@@ -95,7 +92,7 @@ class ConvertResponse(BaseModel):
     file_size_bytes: int
     file_size_human: str
     audio_quality: str
-    chibisafe: Optional[ChibisafeUpload] = None
+    chibisafe: ChibisafeUpload
 
 
 class ErrorResponse(BaseModel):

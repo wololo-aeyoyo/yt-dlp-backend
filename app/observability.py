@@ -1,7 +1,12 @@
+import asyncio
 import atexit
+import io
 import logging
 import logging.handlers
+import math
+import struct
 import sys
+import time
 from queue import Queue
 
 logger = logging.getLogger(__name__)
@@ -53,11 +58,10 @@ def _setup_loki(settings) -> None:
                 pass  # drop silently when Loki is unreachable
 
         loki_handler = _SilentLokiHandler(
-            url=f"{settings.loki_url}/loki/api/v1/push",
+            url=settings.loki_url,  # full URL including path
             tags={"app": "yt-dlp-backend", "env": settings.environment},
             version="1",
         )
-        # Wrap in QueueHandler so Loki HTTP calls don't block the event loop.
         queue: Queue = Queue(-1)
         queue_handler = logging.handlers.QueueHandler(queue)
         listener = logging.handlers.QueueListener(queue, loki_handler, respect_handler_level=True)
@@ -102,10 +106,10 @@ def _setup_tempo(app, settings) -> None:
         logger.warning("OpenTelemetry packages not installed; Tempo integration disabled: %s", exc)
 
 
-# ── Mimir (Prometheus metrics) ────────────────────────────────────────────────
+# ── Mimir (Prometheus metrics + remote write) ─────────────────────────────────
 
 def _setup_mimir(app, settings) -> None:
-    if not settings.prometheus_enabled:
+    if not settings.mimir_url:
         return
     try:
         from prometheus_fastapi_instrumentator import Instrumentator
@@ -115,11 +119,92 @@ def _setup_mimir(app, settings) -> None:
             should_ignore_untemplated=True,
             excluded_handlers=["/metrics", "/docs", "/redoc", "/openapi.json", "/"],
         ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-        logger.info("Prometheus metrics endpoint enabled at /metrics")
+        logger.info(
+            "Prometheus /metrics + remote write → Mimir enabled",
+            extra={"mimir_url": settings.mimir_url},
+        )
     except ImportError:
         logger.warning(
             "prometheus-fastapi-instrumentator not installed; Mimir metrics disabled"
         )
+
+
+# ── Mimir remote write helpers ────────────────────────────────────────────────
+
+def _pb_varint(n: int) -> bytes:
+    buf = []
+    while n > 0x7F:
+        buf.append((n & 0x7F) | 0x80)
+        n >>= 7
+    buf.append(n)
+    return bytes(buf)
+
+def _pb_len(field: int, data: bytes) -> bytes:
+    return _pb_varint((field << 3) | 2) + _pb_varint(len(data)) + data
+
+def _pb_str(field: int, s: str) -> bytes:
+    return _pb_len(field, s.encode())
+
+def _pb_double(field: int, v: float) -> bytes:
+    return _pb_varint((field << 3) | 1) + struct.pack("<d", v)
+
+def _pb_int64(field: int, v: int) -> bytes:
+    return _pb_varint((field << 3) | 0) + _pb_varint(v)
+
+
+def _build_remote_write_payload(environment: str) -> bytes:
+    """Collect current Prometheus metrics and encode as a snappy-compressed remote write protobuf."""
+    import snappy
+    from prometheus_client import REGISTRY, generate_latest
+    from prometheus_client.parser import text_fd_to_metric_families
+
+    now_ms = int(time.time() * 1000)
+    text = generate_latest(REGISTRY).decode()
+    write_request = b""
+
+    for family in text_fd_to_metric_families(io.StringIO(text)):
+        for sample in family.samples:
+            if math.isnan(sample.value):
+                continue
+            labels = {"__name__": sample.name, "env": environment, **sample.labels}
+            ts = b""
+            for k, v in sorted(labels.items()):
+                ts += _pb_len(1, _pb_str(1, k) + _pb_str(2, v))
+            ts += _pb_len(2, _pb_double(1, sample.value) + _pb_int64(2, now_ms))
+            write_request += _pb_len(1, ts)
+
+    return snappy.compress(write_request)
+
+
+async def remote_write_loop(mimir_url: str, environment: str, interval: int = 15) -> None:
+    """Background task: push metrics to Mimir every `interval` seconds."""
+    import httpx
+
+    logger.info("Mimir remote write loop started", extra={"interval_s": interval})
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            payload = await asyncio.get_running_loop().run_in_executor(
+                None, _build_remote_write_payload, environment
+            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    mimir_url,
+                    content=payload,
+                    headers={
+                        "Content-Type": "application/x-protobuf",
+                        "Content-Encoding": "snappy",
+                        "X-Prometheus-Remote-Write-Version": "0.1.0",
+                    },
+                    timeout=10.0,
+                )
+            if resp.status_code not in (200, 204):
+                logger.warning(
+                    "Mimir remote write non-2xx",
+                    extra={"status": resp.status_code, "body": resp.text[:200]},
+                )
+        except Exception as exc:
+            logger.warning("Mimir remote write failed: %s", exc)
 
 
 # ── Pyroscope (continuous profiling) ─────────────────────────────────────────

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     json_logs: bool = True
     loki_url: Optional[str] = None
     otel_endpoint: Optional[str] = None
-    prometheus_enabled: bool = True
+    mimir_url: Optional[str] = None
     pyroscope_url: Optional[str] = None
 
     class Config:

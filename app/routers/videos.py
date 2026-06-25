@@ -1,8 +1,11 @@
 import mimetypes
 import os
 from pathlib import Path
+from urllib.parse import quote
 
+import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 import yt_dlp.utils
 
 from app import db
@@ -91,14 +94,11 @@ async def download_video(
                 detail="Authentication required to download files larger than 2 GB",
             )
 
-        chibi = None
-        if body.upload_to_chibisafe:
-            chibi = await uploader.upload_to_chibisafe(filepath)
+        chibi = await uploader.upload_to_chibisafe(filepath)
 
         await db.log_request(
             pool, url=body.url, action="download", success=True, title=title,
-            file_size_bytes=file_size, chibisafe_url=chibi.url if chibi else None,
-            user_id=user_id,
+            file_size_bytes=file_size, chibisafe_url=chibi.url, user_id=user_id,
         )
 
         return DownloadResponse(
@@ -153,14 +153,11 @@ async def convert_to_mp3(
                 detail="Authentication required for files larger than 2 GB",
             )
 
-        chibi = None
-        if body.upload_to_chibisafe:
-            chibi = await uploader.upload_to_chibisafe(mp3_path)
+        chibi = await uploader.upload_to_chibisafe(mp3_path)
 
         await db.log_request(
             pool, url=body.url, action="convert", success=True, title=title,
-            file_size_bytes=file_size, chibisafe_url=chibi.url if chibi else None,
-            user_id=user_id,
+            file_size_bytes=file_size, chibisafe_url=chibi.url, user_id=user_id,
         )
 
         return ConvertResponse(
@@ -182,3 +179,72 @@ async def convert_to_mp3(
         raise HTTPException(status_code=500, detail=str(exc))
     finally:
         _cleanup(video_path, mp3_path)
+
+
+@router.post("/stream", summary="Download and stream video directly to client")
+@limiter.limit("5/minute")
+async def stream_video(
+    request: Request,
+    body: DownloadRequest,
+    user_id: int | None = Depends(optional_user),
+):
+    """
+    Downloads the video then streams the file bytes directly to the client.
+    The file is deleted from disk as soon as streaming finishes.
+    """
+    settings = get_settings()
+    pool = request.app.state.db
+    filepath = None
+    try:
+        filepath, title = await downloader.download_video(
+            url=body.url,
+            output_dir=settings.download_dir,
+            format_id=body.format_id,
+            quality=body.quality,
+        )
+
+        file_size = os.path.getsize(filepath)
+        mime_type, _ = mimetypes.guess_type(filepath)
+
+        if file_size > _2GB and user_id is None:
+            await db.log_request(
+                pool, url=body.url, action="stream", success=False, title=title,
+                file_size_bytes=file_size, error="auth required for files >2 GB",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to stream files larger than 2 GB",
+            )
+
+        await db.log_request(
+            pool, url=body.url, action="stream", success=True,
+            title=title, file_size_bytes=file_size, user_id=user_id,
+        )
+
+        filename = Path(filepath).name
+
+        async def _iter(path: str):
+            try:
+                async with aiofiles.open(path, "rb") as f:
+                    while chunk := await f.read(1024 * 1024):
+                        yield chunk
+            finally:
+                _cleanup(path)
+
+        return StreamingResponse(
+            _iter(filepath),
+            media_type=mime_type or "application/octet-stream",
+            headers={
+                "Content-Length": str(file_size),
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+            },
+        )
+    except HTTPException:
+        _cleanup(filepath)
+        raise
+    except yt_dlp.utils.DownloadError as exc:
+        await db.log_request(pool, url=body.url, action="stream", success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        await db.log_request(pool, url=body.url, action="stream", success=False, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))

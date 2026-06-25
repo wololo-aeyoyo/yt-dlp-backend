@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.config import get_settings
 from app.db import create_pool
 from app.limiter import limiter
 from app.routers import auth, health, videos
@@ -13,6 +15,10 @@ from app.routers import auth, health, videos
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db = await create_pool()
+    settings = get_settings()
+    if settings.mimir_url:
+        from app.observability import remote_write_loop
+        asyncio.create_task(remote_write_loop(settings.mimir_url, settings.environment))
     yield
     await app.state.db.close()
 

@@ -12,6 +12,7 @@ slowapi==0.1.9
 asyncpg
 PyJWT
 passlib[bcrypt]
+python-snappy
 
 # Observability
 python-json-logger                          # structured JSON logs
