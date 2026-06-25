@@ -18,7 +18,7 @@ python-snappy
 python-json-logger                          # structured JSON logs
 python-logging-loki                         # Loki log shipping
 opentelemetry-sdk                           # OTel core
-opentelemetry-exporter-otlp-proto-http      # OTLP/HTTP exporter → Tempo
+opentelemetry-exporter-otlp-proto-grpc      # OTLP/gRPC exporter → Tempo (port 4317)
 opentelemetry-instrumentation-fastapi       # auto-trace FastAPI routes
 opentelemetry-instrumentation-httpx         # auto-trace httpx (Chibisafe calls)
 prometheus-fastapi-instrumentator           # /metrics endpoint → Mimir
