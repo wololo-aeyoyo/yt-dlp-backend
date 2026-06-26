@@ -55,12 +55,15 @@ async def get_info(
         info = await downloader.get_video_info(url)
         await db.log_request(pool, url=url, action="info", success=True, user_id=user_id)
         return info
+    except ValueError as exc:
+        await db.log_request(pool, url=url, action="info", success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except yt_dlp.utils.DownloadError as exc:
         await db.log_request(pool, url=url, action="info", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         await db.log_request(pool, url=url, action="info", success=False, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/download", response_model=DownloadResponse, summary="Download a video")
@@ -112,12 +115,15 @@ async def download_video(
         )
     except HTTPException:
         raise
+    except ValueError as exc:
+        await db.log_request(pool, url=body.url, action="download", success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except yt_dlp.utils.DownloadError as exc:
         await db.log_request(pool, url=body.url, action="download", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         await db.log_request(pool, url=body.url, action="download", success=False, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         _cleanup(filepath)
 
@@ -171,12 +177,15 @@ async def convert_to_mp3(
         )
     except HTTPException:
         raise
+    except ValueError as exc:
+        await db.log_request(pool, url=body.url, action="convert", success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except yt_dlp.utils.DownloadError as exc:
         await db.log_request(pool, url=body.url, action="convert", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         await db.log_request(pool, url=body.url, action="convert", success=False, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         _cleanup(video_path, mp3_path)
 
@@ -242,9 +251,13 @@ async def stream_video(
     except HTTPException:
         _cleanup(filepath)
         raise
+    except ValueError as exc:
+        _cleanup(filepath)
+        await db.log_request(pool, url=body.url, action="stream", success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except yt_dlp.utils.DownloadError as exc:
         await db.log_request(pool, url=body.url, action="stream", success=False, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         await db.log_request(pool, url=body.url, action="stream", success=False, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")

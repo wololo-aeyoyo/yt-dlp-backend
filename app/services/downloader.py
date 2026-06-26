@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Optional
 
 import yt_dlp
+import yt_dlp.utils
 
 from app.config import get_settings
 from app.models.schemas import VideoInfo, FormatInfo
+from app.ssrf import validate_url
 
 
 def _faststart(input_path: str, ffmpeg: str) -> str:
@@ -50,6 +52,7 @@ def _extract_info_sync(url: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
+        "socket_timeout": 30,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -68,6 +71,9 @@ def _download_sync(url: str, format_spec: str, output_dir: str) -> tuple[str, st
         "merge_output_format": "mp4",
         "postprocessors": [{"key": "FFmpegMetadata"}],
         "ffmpeg_location": get_settings().ffmpeg_path,
+        "max_filesize": get_settings().max_filesize_mb * 1024 * 1024,
+        "socket_timeout": 30,
+        "match_filter": yt_dlp.utils.match_filter_func("!is_live"),  # no infinite livestreams
     }
 
     downloaded_path: list[str] = []
@@ -111,6 +117,7 @@ def _download_sync(url: str, format_spec: str, output_dir: str) -> tuple[str, st
 
 
 async def get_video_info(url: str) -> VideoInfo:
+    validate_url(url)
     loop = asyncio.get_event_loop()
     info = await loop.run_in_executor(None, _extract_info_sync, url)
 
@@ -141,6 +148,7 @@ async def download_video(
     quality: str = "bestvideo+bestaudio/best",
 ) -> tuple[str, str]:
     """Returns (filepath, title). Runs blocking yt-dlp in a thread."""
+    validate_url(url)
     os.makedirs(output_dir, exist_ok=True)
     format_spec = format_id if format_id else quality
 
