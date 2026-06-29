@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 import yt_dlp.utils
 
 from app import db
-from app.auth import optional_user
+from app.auth import optional_user, require_user
 from app.config import get_settings
 from app.limiter import limiter
 from app.models.schemas import (
@@ -71,7 +71,7 @@ async def get_info(
 async def download_video(
     request: Request,
     body: DownloadRequest,
-    user_id: int | None = Depends(optional_user),
+    user_id: int = Depends(require_user),
 ):
     settings = get_settings()
     pool = request.app.state.db
@@ -86,16 +86,6 @@ async def download_video(
 
         file_size = os.path.getsize(filepath)
         mime_type, _ = mimetypes.guess_type(filepath)
-
-        if file_size > _2GB and user_id is None:
-            await db.log_request(
-                pool, url=body.url, action="download", success=False, title=title,
-                file_size_bytes=file_size, error="auth required for files >2 GB",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to download files larger than 2 GB",
-            )
 
         chibi = await uploader.upload_to_chibisafe(filepath)
 
@@ -133,7 +123,7 @@ async def download_video(
 async def convert_to_mp3(
     request: Request,
     body: ConvertRequest,
-    user_id: int | None = Depends(optional_user),
+    user_id: int = Depends(require_user),
 ):
     settings = get_settings()
     pool = request.app.state.db
@@ -148,16 +138,6 @@ async def convert_to_mp3(
 
         mp3_path = await converter.convert_to_mp3(video_path, body.audio_quality.value)
         file_size = os.path.getsize(mp3_path)
-
-        if file_size > _2GB and user_id is None:
-            await db.log_request(
-                pool, url=body.url, action="convert", success=False, title=title,
-                file_size_bytes=file_size, error="auth required for files >2 GB",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required for files larger than 2 GB",
-            )
 
         chibi = await uploader.upload_to_chibisafe(mp3_path)
 
@@ -195,7 +175,7 @@ async def convert_to_mp3(
 async def stream_video(
     request: Request,
     body: DownloadRequest,
-    user_id: int | None = Depends(optional_user),
+    user_id: int = Depends(require_user),
 ):
     """
     Downloads the video then streams the file bytes directly to the client.
@@ -214,16 +194,6 @@ async def stream_video(
 
         file_size = os.path.getsize(filepath)
         mime_type, _ = mimetypes.guess_type(filepath)
-
-        if file_size > _2GB and user_id is None:
-            await db.log_request(
-                pool, url=body.url, action="stream", success=False, title=title,
-                file_size_bytes=file_size, error="auth required for files >2 GB",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to stream files larger than 2 GB",
-            )
 
         await db.log_request(
             pool, url=body.url, action="stream", success=True,
