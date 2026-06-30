@@ -12,6 +12,7 @@ slowapi==0.1.9
 asyncpg
 PyJWT
 passlib[bcrypt]
+bcrypt==4.0.1
 python-snappy
 
 # Observability
