@@ -68,9 +68,9 @@ A backend service for downloading videos, extracting audio, and uploading to Chi
     version="1.0.0",
     # Hide schema/docs in prod so they don't leak the API surface. Set ENVIRONMENT
     # to anything but "production" (e.g. development) to re-enable them.
-    #docs_url=None if get_settings().environment == "production" else "/docs",
-    #redoc_url=None if get_settings().environment == "production" else "/redoc",
-    #openapi_url=None if get_settings().environment == "production" else "/openapi.json",
+    docs_url=None if get_settings().environment == "production" else "/docs",
+    redoc_url=None if get_settings().environment == "production" else "/redoc",
+    openapi_url=None if get_settings().environment == "production" else "/openapi.json",
 )
 
 app.state.limiter = limiter
