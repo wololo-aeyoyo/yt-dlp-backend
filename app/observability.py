@@ -17,9 +17,10 @@ def setup_observability(app) -> None:
 
     settings = get_settings()
     _setup_logging(settings)
-    _setup_loki(settings)
+    # Loki log shipping and Mimir metrics are deactivated.
+    # _setup_loki(settings)
     _setup_tempo(app, settings)
-    _setup_mimir(app, settings)
+    # _setup_mimir(app, settings)
     _setup_pyroscope(settings)
 
 

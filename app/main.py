@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,10 +14,7 @@ from app.routers import auth, health, videos
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db = await create_pool()
-    settings = get_settings()
-    if settings.mimir_url:
-        from app.observability import remote_write_loop
-        asyncio.create_task(remote_write_loop(settings.mimir_url, settings.environment))
+    # Mimir remote-write metrics loop is deactivated.
     yield
     await app.state.db.close()
 
@@ -68,9 +64,9 @@ A backend service for downloading videos, extracting audio, and uploading to Chi
     version="1.0.0",
     # Hide schema/docs in prod so they don't leak the API surface. Set ENVIRONMENT
     # to anything but "production" (e.g. development) to re-enable them.
-    docs_url=None if get_settings().environment == "production" else "/docs",
-    redoc_url=None if get_settings().environment == "production" else "/redoc",
-    openapi_url=None if get_settings().environment == "production" else "/openapi.json",
+    #docs_url=None if get_settings().environment == "production" else "/docs",
+    #redoc_url=None if get_settings().environment == "production" else "/redoc",
+    #openapi_url=None if get_settings().environment == "production" else "/openapi.json",
 )
 
 app.state.limiter = limiter
