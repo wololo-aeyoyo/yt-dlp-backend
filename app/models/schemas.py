@@ -39,6 +39,8 @@ class VideoInfo(BaseModel):
     view_count: Optional[int] = None
     like_count: Optional[int] = None
     thumbnail: Optional[str] = None
+    filesize_approx_bytes: Optional[int] = None
+    filesize_approx_human: Optional[str] = None
     webpage_url: str
     extractor: str
     formats: list[FormatInfo]

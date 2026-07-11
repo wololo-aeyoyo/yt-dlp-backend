@@ -25,6 +25,27 @@ def _faststart(input_path: str, ffmpeg: str) -> str:
     return input_path
 
 
+def _human_size(num_bytes: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024
+    return f"{num_bytes:.1f} TB"
+
+
+def _estimate_filesize(info: dict) -> Optional[int]:
+    """Estimated size of the default (best) format yt-dlp selected during extraction."""
+    size = info.get("filesize") or info.get("filesize_approx")
+    if size:
+        return int(size)
+    # Merged video+audio: sum the sizes of the requested component formats.
+    requested = info.get("requested_formats") or []
+    sizes = [f.get("filesize") or f.get("filesize_approx") for f in requested]
+    if sizes and all(sizes):
+        return int(sum(sizes))
+    return None
+
+
 def _build_format_info(fmt: dict) -> FormatInfo:
     vcodec = fmt.get("vcodec", "none")
     acodec = fmt.get("acodec", "none")
@@ -122,6 +143,7 @@ async def get_video_info(url: str) -> VideoInfo:
     info = await loop.run_in_executor(None, _extract_info_sync, url)
 
     formats = [_build_format_info(f) for f in info.get("formats", [])]
+    filesize = _estimate_filesize(info)
 
     return VideoInfo(
         id=info.get("id", ""),
@@ -134,6 +156,8 @@ async def get_video_info(url: str) -> VideoInfo:
         view_count=info.get("view_count"),
         like_count=info.get("like_count"),
         thumbnail=info.get("thumbnail"),
+        filesize_approx_bytes=filesize,
+        filesize_approx_human=_human_size(filesize) if filesize else None,
         webpage_url=info.get("webpage_url", url),
         extractor=info.get("extractor", ""),
         formats=formats,
